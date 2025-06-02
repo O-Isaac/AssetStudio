@@ -403,7 +403,7 @@ namespace AssetStudioCLI
                             currentNode = new GameObjectNode(m_GameObject);
                             treeNodeDictionary.Add(m_GameObject, currentNode);
                         }
-                        
+
                         foreach (var pptr in m_GameObject.m_Components)
                         {
                             if (pptr.TryGet(out var m_Component))
@@ -538,7 +538,7 @@ namespace AssetStudioCLI
             var regexMode = CLIOptions.f_filterWithRegex.Value;
             Regex regex;
 
-            switch(CLIOptions.filterBy)
+            switch (CLIOptions.filterBy)
             {
                 case FilterBy.Name when regexMode:
                     regex = new Regex(CLIOptions.o_filterByName.Value[0]);
@@ -712,7 +712,7 @@ namespace AssetStudioCLI
                     toExportAssetDict.TryAdd(asset, exportPath);
                 }
             });
-            
+
             foreach (var toExportAsset in toExportAssetDict)
             {
                 var asset = toExportAsset.Key;
@@ -815,7 +815,7 @@ namespace AssetStudioCLI
                     );
                     doc.Save(filename);
 
-                   break;
+                    break;
             }
             Logger.Info($"Finished exporting asset list with {parsedAssetsList.Count} items.");
         }
@@ -1149,24 +1149,24 @@ namespace AssetStudioCLI
                         : Path.GetFileNameWithoutExtension(cubismExtractor.MocMono.assetsFile.originalPath);
                     string modelPath;
                     switch (modelGroupOption)
-                        {
-                            case Live2DModelGroupOption.SourceFileName:
-                                modelPath = filename;
-                                break;
-                            case Live2DModelGroupOption.ModelName:
-                                modelPath = !string.IsNullOrEmpty(cubismExtractor.Model?.Name)
-                                    ? cubismExtractor.Model.Name
-                                    : filename;
-                                break;
-                            default: //ContainerPath
-                                var container = searchByFilename && cubismExtractor.Model != null
-                                    ? cubismExtractor.Model.Container
-                                    : srcContainer;
-                                modelPath = Path.HasExtension(container)
-                                    ? container.Replace(Path.GetExtension(container), "")
-                                    : container;
-                                break;
-                        }
+                    {
+                        case Live2DModelGroupOption.SourceFileName:
+                            modelPath = filename;
+                            break;
+                        case Live2DModelGroupOption.ModelName:
+                            modelPath = !string.IsNullOrEmpty(cubismExtractor.Model?.Name)
+                                ? cubismExtractor.Model.Name
+                                : filename;
+                            break;
+                        default: //ContainerPath
+                            var container = searchByFilename && cubismExtractor.Model != null
+                                ? cubismExtractor.Model.Container
+                                : srcContainer;
+                            modelPath = Path.HasExtension(container)
+                                ? container.Replace(Path.GetExtension(container), "")
+                                : container;
+                            break;
+                    }
 
                     var destPath = Path.Combine(baseDestPath, modelPath) + Path.DirectorySeparatorChar;
                     cubismExtractor.ExtractCubismModel(destPath, motionMode, forceBezier, parallelTaskCount);
@@ -1184,5 +1184,168 @@ namespace AssetStudioCLI
                 "Nothing exported.";
             Logger.Default.Log(LoggerEvent.Info, status, ignoreLevel: true);
         }
+       
+        private static void ExportFbx(IImported convert, string exportPath)
+        {
+            var fbxSettings = Fbx.Settings.FromBase64(Properties.Settings.Default.fbxSettings);
+            ModelExporter.ExportFbx(exportPath, convert, fbxSettings);
+        }
+        public static bool ExportAnimator(AssetItem item, string exportPath, List<AssetItem> animationList = null)
+        {
+            var exportFullPath = Path.Combine(exportPath, item.Text, item.Text + ".fbx");
+            if (File.Exists(exportFullPath))
+            {
+                exportFullPath = Path.Combine(exportPath, item.Text + item.UniqueID, item.Text + ".fbx");
+            }
+            var m_Animator = (Animator)item.Asset;
+            var convert = animationList != null
+                ? new ModelConverter(m_Animator, Properties.Settings.Default.convertType, animationList.Select(x => (AnimationClip)x.Asset).ToArray())
+                : new ModelConverter(m_Animator, Properties.Settings.Default.convertType);
+            ExportFbx(convert, exportFullPath);
+            return true;
+        }
+
+        public static void ExportAnimations()
+        {
+            var savePath = CLIOptions.o_outputFolder.Value;
+            var searchList = CLIOptions.o_filterByName.Value;
+            var isFiltered = CLIOptions.filterBy == FilterBy.Name;
+            var exportedCount = 0;
+
+            // Filter animation clips if needed
+            var animationClips = parsedAssetsList
+                .Where(x => x.Type == ClassIDType.AnimationClip)
+                .ToList();
+
+            if (isFiltered)
+            {
+                animationClips = animationClips
+                    .Where(x => searchList.Any(searchText => x.Text.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0))
+                    .ToList();
+            }
+
+            var toExportCount = animationClips.Count;
+            if (toExportCount == 0)
+            {
+                Logger.Default.Log(LoggerEvent.Info, "No animation clips found to export.", ignoreLevel: true);
+                return;
+            }
+
+            Logger.Info($"Found {toExportCount} animation clip(s) to export.");
+
+            // Group animations by their controllers/animators if needed
+            var groupedAnimations = new Dictionary<AssetItem, List<AssetItem>>();
+
+            foreach (var clip in animationClips)
+            {
+                // Try to find the animator/controller this clip belongs to
+                var owner = FindAnimationOwner(clip);
+                if (owner != null)
+                {
+                    if (!groupedAnimations.ContainsKey(owner))
+                    {
+                        groupedAnimations[owner] = new List<AssetItem>();
+                    }
+                    groupedAnimations[owner].Add(clip);
+                }
+                else
+                {
+                    // Export as standalone clip
+                    groupedAnimations.Add(clip, new List<AssetItem> { clip });
+                }
+            }
+
+            // Export each animation
+            Progress.Reset();
+            var i = 0;
+            foreach (var group in groupedAnimations)
+            {
+                var animator = group.Key;
+                var clips = group.Value;
+                var exportPath = savePath;
+
+                // Create subfolder based on animator name if available
+                if (animator.Type == ClassIDType.Animator || animator.Type == ClassIDType.Animation)
+                {
+                    exportPath = Path.Combine(savePath, FixFileName(animator.Text)) + Path.DirectorySeparatorChar;
+                    Directory.CreateDirectory(exportPath);
+                }
+
+                try
+                {
+                    if (animator.Type == ClassIDType.Animator)
+                    {
+                        // Export animator with all its clips
+                        ExportAnimator(animator, exportPath, clips);
+                        exportedCount += clips.Count;
+                        Logger.Debug($"Exported animator {animator.Text} with {clips.Count} animation clips");
+                    }
+                    else
+                    {
+                        // Export individual animation clips
+                        foreach (var clip in clips)
+                        {
+                            if (ExportConvertFile(clip, exportPath))
+                            {
+                                exportedCount++;
+                                Logger.Debug($"Exported animation clip {clip.Text}");
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error($"Failed to export animation: {animator?.Text ?? "Standalone clip"}", ex);
+                }
+
+                Progress.Report(++i, groupedAnimations.Count);
+                Console.Write($"Exported [{exportedCount}/{toExportCount}]\r");
+            }
+
+            Console.WriteLine("");
+            var status = exportedCount > 0
+                ? $"Finished exporting {exportedCount} animation clip(s) to \"{savePath.Color(Ansi.BrightGreen)}\""
+                : "No animations were exported";
+            Logger.Default.Log(LoggerEvent.Info, status, ignoreLevel: true);
+        }
+
+private static AssetItem FindAnimationOwner(AssetItem clip)
+{
+    // Check if this clip belongs to any animator or animation component
+    foreach (var asset in parsedAssetsList)
+    {
+        switch (asset.Asset)
+        {
+            case Animator animator:
+                if (animator.m_Controller.TryGet(out var controller))
+                {
+                    if (controller is AnimatorOverrideController overrideController)
+                    {
+                        if (overrideController.m_Controller.TryGet(out var baseController))
+                        {
+                            controller = baseController;
+                        }
+                    }
+
+                    if (controller is AnimatorController animatorController)
+                    {
+                        if (animatorController.m_AnimationClips.Any(x => x.m_PathID == clip.m_PathID))
+                        {
+                            return asset;
+                        }
+                    }
+                }
+                break;
+                
+            case Animation animation:
+                if (animation.m_Animations.Any(x => x.m_PathID == clip.m_PathID))
+                {
+                    return asset;
+                }
+                break;
+        }
+    }
+    return null;
+}
     }
 }

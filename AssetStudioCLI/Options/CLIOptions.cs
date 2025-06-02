@@ -26,6 +26,7 @@ namespace AssetStudioCLI.Options
         Dump,
         Info,
         Live2D,
+        Animator,
         SplitObjects,
     }
 
@@ -607,6 +608,16 @@ namespace AssetStudioCLI.Options
                     case "l2d":
                     case "live2d":
                         o_workMode.Value = WorkMode.Live2D;
+                        o_exportAssetTypes.Value = new List<ClassIDType>
+                        {
+                            ClassIDType.AnimationClip,
+                            ClassIDType.Animator,
+                            ClassIDType.MonoBehaviour,
+                            ClassIDType.Texture2D,
+                        };
+                        break;
+                    case "animation":
+                        o_workMode.Value = WorkMode.Animator;
                         o_exportAssetTypes.Value = new List<ClassIDType>
                         {
                             ClassIDType.AnimationClip,

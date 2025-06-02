@@ -55,6 +55,9 @@ namespace AssetStudioCLI
                         case WorkMode.Live2D:
                             Studio.ExportLive2D();
                             break;
+                        case WorkMode.Animator:
+                            Studio.ExportAnimations();
+                            break;
                         case WorkMode.SplitObjects:
                             Studio.ExportSplitObjects();
                             break;
