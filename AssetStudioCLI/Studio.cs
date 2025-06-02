@@ -14,6 +14,7 @@ using System.Xml.Linq;
 using static AssetStudioCLI.Exporter;
 using Ansi = AssetStudio.ColorConsole;
 
+
 namespace AssetStudioCLI
 {
     internal static class Studio
@@ -1187,9 +1188,16 @@ namespace AssetStudioCLI
        
         private static void ExportFbx(IImported convert, string exportPath)
         {
-            var fbxSettings = Fbx.Settings.FromBase64(Properties.Settings.Default.fbxSettings);
+            var fbxSettings = new Fbx.Settings
+            {
+                BoneSize = CLIOptions.o_fbxBoneSize.Value,
+                ScaleFactor = CLIOptions.o_fbxScaleFactor.Value,
+                ExportAllUvsAsDiffuseMaps = CLIOptions.f_fbxUvsAsDiffuseMaps.Value,
+            };
+
             ModelExporter.ExportFbx(exportPath, convert, fbxSettings);
         }
+        
         public static bool ExportAnimator(AssetItem item, string exportPath, List<AssetItem> animationList = null)
         {
             var exportFullPath = Path.Combine(exportPath, item.Text, item.Text + ".fbx");
@@ -1199,8 +1207,8 @@ namespace AssetStudioCLI
             }
             var m_Animator = (Animator)item.Asset;
             var convert = animationList != null
-                ? new ModelConverter(m_Animator, Properties.Settings.Default.convertType, animationList.Select(x => (AnimationClip)x.Asset).ToArray())
-                : new ModelConverter(m_Animator, Properties.Settings.Default.convertType);
+                ? new ModelConverter(m_Animator, ((global::AssetStudio.ImageFormat)(this["convertType"])), animationList.Select(x => (AnimationClip)x.Asset).ToArray())
+                : new ModelConverter(m_Animator, ((global::AssetStudio.ImageFormat)(this["convertType"])));
             ExportFbx(convert, exportFullPath);
             return true;
         }
